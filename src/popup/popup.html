@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>微信读书样式</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <h1>微信读书样式</h1>
+    <label class="switch" title="Alt+Shift+W">
+      <input type="checkbox" id="enabled" />
+      <span></span>
+    </label>
+  </header>
+
+  <main id="panel">
+    <section>
+      <h2>主题</h2>
+      <div class="themes" id="themes"></div>
+    </section>
+
+    <section>
+      <h2>颜色</h2>
+      <div class="row">
+        <label for="bgColor">背景</label>
+        <input type="color" id="bgColor" />
+      </div>
+      <div class="row">
+        <label for="textColor">文字</label>
+        <input type="color" id="textColor" />
+      </div>
+      <label class="check">
+        <input type="checkbox" id="recolorText" />
+        重绘正文文字颜色
+      </label>
+    </section>
+
+    <section>
+      <h2>字体</h2>
+      <select id="fontPreset"></select>
+      <input type="text" id="fontFamily" placeholder="自定义字体名，如 LXGW WenKai" spellcheck="false" />
+      <p class="hint">需本机已安装该字体。</p>
+    </section>
+
+    <section>
+      <h2>版面</h2>
+      <div class="row">
+        <label for="contentWidth">版心宽度</label>
+        <output id="widthValue"></output>
+      </div>
+      <input type="range" id="contentWidth" min="600" max="1800" step="20" />
+      <button type="button" class="link" id="widthReset">恢复原版宽度</button>
+      <label class="check">
+        <input type="checkbox" id="immersive" />
+        沉浸模式（顶栏、侧边按钮悬停时显示）
+      </label>
+    </section>
+
+    <details>
+      <summary>自定义 CSS</summary>
+      <textarea id="customCss" rows="6" spellcheck="false" placeholder=".readerFooter { display: none !important; }"></textarea>
+    </details>
+  </main>
+
+  <footer>
+    <span class="hint">正文没刷新时，刷新一下页面</span>
+    <button type="button" id="reset">全部重置</button>
+  </footer>
+
+  <script src="../shared/settings.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
