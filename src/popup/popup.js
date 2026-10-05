@@ -71,6 +71,10 @@
     $('widthValue').textContent = s.contentWidth ? `${s.contentWidth}px` : '原版';
     $('immersive').checked = s.immersive;
 
+    $('flowMode').checked = s.flowMode;
+    $('scrollSpeed').value = s.scrollSpeed;
+    $('speedValue').textContent = `${s.scrollSpeed} px/s`;
+
     if (document.activeElement !== $('customCss')) $('customCss').value = s.customCss;
   }
 
@@ -95,10 +99,14 @@
     $('widthReset').addEventListener('click', () => update({ contentWidth: 0 }));
     $('immersive').addEventListener('change', (e) => update({ immersive: e.target.checked }));
 
+    $('flowMode').addEventListener('change', (e) => update({ flowMode: e.target.checked }));
+    $('scrollSpeed').addEventListener('input', (e) => update({ scrollSpeed: Number(e.target.value) }, { debounce: true }));
+    $('autoScroll').addEventListener('click', toggleAutoScroll);
+
     $('customCss').addEventListener('input', (e) => update({ customCss: e.target.value }, { debounce: true, render: false }));
 
     // 松手 / 失焦时立即保存，避免关闭弹窗时丢掉防抖中的修改。
-    for (const id of ['bgColor', 'textColor', 'fontFamily', 'contentWidth', 'customCss']) {
+    for (const id of ['bgColor', 'textColor', 'fontFamily', 'contentWidth', 'scrollSpeed', 'customCss']) {
       $(id).addEventListener('change', flush);
     }
 
@@ -108,10 +116,36 @@
     });
   }
 
+  // 自动滚屏是页面上的运行时状态，不存进配置，直接和当前标签页通信。
+  async function sendToTab(message) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) return null;
+    try {
+      return await chrome.tabs.sendMessage(tab.id, message);
+    } catch (_) {
+      return null; // 不是微信读书页面
+    }
+  }
+
+  function renderAutoScroll(res) {
+    const btn = $('autoScroll');
+    btn.disabled = !res;
+    btn.textContent = res?.running ? '暂停自动滚屏' : '开始自动滚屏';
+    if (!res) $('autoScrollHint').textContent = '请在微信读书阅读页中使用';
+  }
+
+  async function toggleAutoScroll() {
+    flush();
+    const res = await sendToTab({ type: 'wrs:toggleAutoScroll' });
+    renderAutoScroll(res);
+    if (res?.running) window.close();
+  }
+
   buildStatic();
   bind();
   loadSettings().then((s) => {
     state = s;
     render();
   });
+  sendToTab({ type: 'wrs:getAutoScroll' }).then(renderAutoScroll);
 })();

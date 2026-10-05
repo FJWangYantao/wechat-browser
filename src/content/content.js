@@ -118,6 +118,7 @@ ${SEL.topBar}:hover, ${SEL.controls}:hover {
     applyStyle(buildCss(s));
     pushToPage(s);
     relayoutIfNeeded(s);
+    globalThis.WRSFlow?.update(s);
   }
 
   document.addEventListener('wrs:hello', () => settings && pushToPage(settings));

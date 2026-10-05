@@ -57,6 +57,21 @@
       </label>
     </section>
 
+    <section>
+      <h2>瀑布流阅读</h2>
+      <label class="check">
+        <input type="checkbox" id="flowMode" />
+        章末继续下滑，自动进入下一章
+      </label>
+      <div class="row spaced">
+        <label for="scrollSpeed">自动滚屏速度</label>
+        <output id="speedValue"></output>
+      </div>
+      <input type="range" id="scrollSpeed" min="10" max="400" step="10" />
+      <button type="button" class="primary" id="autoScroll">开始自动滚屏</button>
+      <p class="hint" id="autoScrollHint">需在微信读书的单栏模式下使用 · Alt+Shift+S</p>
+    </section>
+
     <details>
       <summary>自定义 CSS</summary>
       <textarea id="customCss" rows="6" spellcheck="false" placeholder=".readerFooter { display: none !important; }"></textarea>

@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "微信读书样式定制",
   "short_name": "WeRead Style",
-  "version": "0.1.0",
-  "description": "自定义微信读书网页版的背景、文字颜色、字体、版心宽度与沉浸模式。",
+  "version": "0.2.0",
+  "description": "自定义微信读书网页版的背景、文字颜色、字体、版心宽度、沉浸模式，支持瀑布流连续阅读与自动滚屏。",
   "minimum_chrome_version": "111",
   "permissions": ["storage"],
   "background": {
@@ -29,6 +29,10 @@
     "toggle-styles": {
       "suggested_key": { "default": "Alt+Shift+W" },
       "description": "开启 / 关闭自定义样式"
+    },
+    "toggle-autoscroll": {
+      "suggested_key": { "default": "Alt+Shift+S" },
+      "description": "开始 / 暂停自动滚屏"
     }
   },
   "content_scripts": [
@@ -40,7 +44,7 @@
     },
     {
       "matches": ["https://weread.qq.com/*"],
-      "js": ["src/shared/settings.js", "src/content/content.js"],
+      "js": ["src/shared/settings.js", "src/content/flow.js", "src/content/content.js"],
       "run_at": "document_start"
     }
   ]
