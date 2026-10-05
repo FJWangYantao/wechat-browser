@@ -1,26 +1,31 @@
 /*
- * 瀑布流阅读（隔离环境 content script）：
- *   - 连续阅读：章末继续往下滑（滚轮 / ↓ / PageDown / 空格），自动进入下一章
- *   - 自动滚屏：匀速向下滚动，读到章末停顿片刻后自动翻到下一章
+ * 连续滚动阅读（隔离环境 content script）——像刷知乎一样一直往下滚：
+ *   - 无缝接章：快滚到章末时，把当前章节末尾的画面复制成静态块留在上方，
+ *     再加载下一章并对齐滚动位置。画面不跳，继续往下滚就是下一章。
+ *   - 自动滚屏：匀速向下滚动，同样无缝跨章。
  *
- * 微信读书一次只渲染一章，所以“跨章”靠点击页面上的「下一章」按钮实现。
- * 双栏（左右翻页）模式下页面不能上下滚动，这里的功能不会生效。
+ * 微信读书一次只渲染一章，加载下一章靠点击页面上的「下一章」按钮。
+ * 双栏（左右翻页）模式下页面不能上下滚动，需要先切到单栏。
  */
 (() => {
   'use strict';
   const { saveSettings } = globalThis.WRS;
 
-  const NEXT_TEXT = /^\s*下一章\s*$/;
-  const PULL_THRESHOLD = 360; // 章末继续下滑多少像素触发翻章
-  const PULL_RESET_MS = 800; // 停止下滑多久后清零
+  const NEXT_CHAPTER_TEXT = /^\s*下一章\s*$/;
+  const NEXT_PAGE_TEXT = /^\s*下一页\s*$/;
+  const HISTORY_ID = 'wrs-history';
+  const CHAPTER_GAP = 96; // 上一章末尾与下一章之间的留白
   const ADVANCE_COOLDOWN_MS = 2500;
   const MIN_SPEED = 10;
   const MAX_SPEED = 400;
 
   const cfg = { enabled: false, flowMode: true, scrollSpeed: 60 };
-  let pull = 0;
-  let pullTimer = 0;
   let lastAdvance = 0;
+  let lastY = 0;
+  let hold = null; // 加载下一章期间锁定滚动位置
+  let history = null; // 上一章末尾的静态快照
+  let pagedHinted = false;
+  let endHintedAt = 0;
 
   const scroller = () => document.scrollingElement || document.documentElement;
 
@@ -28,16 +33,20 @@
     return scroller().scrollHeight > window.innerHeight * 1.2;
   }
 
-  function atBottom() {
+  function remaining() {
     const el = scroller();
-    return el.scrollTop + window.innerHeight >= el.scrollHeight - 4;
+    return el.scrollHeight - (el.scrollTop + window.innerHeight);
   }
 
-  // 按文字找「下一章」，比依赖类名更抗改版。先找按钮/链接，再找叶子节点（点击会冒泡到外层的处理函数）。
-  function findNextChapterButton() {
-    const matches = (el) => NEXT_TEXT.test(el.textContent);
+  function nearEnd() {
+    return remaining() <= Math.max(120, window.innerHeight * 0.25);
+  }
+
+  // 按文字找按钮，比依赖类名更抗改版。先找按钮/链接，再找叶子节点（点击会冒泡到外层的处理函数）。
+  function findByText(re, roots) {
+    const matches = (el) => re.test(el.textContent);
     const visible = (el) => el.getClientRects().length > 0;
-    for (const root of [document.querySelector('.readerFooter'), document.body]) {
+    for (const root of roots) {
       if (!root) continue;
       const buttons = [...root.querySelectorAll('button, a, [role="button"]')].filter(matches);
       const leaves = [...root.querySelectorAll('div, span, p')].filter((el) => el.childElementCount === 0 && matches(el));
@@ -47,41 +56,187 @@
     return null;
   }
 
-  function goNextChapter() {
-    const now = Date.now();
-    if (now - lastAdvance < ADVANCE_COOLDOWN_MS) return false;
-    const btn = findNextChapterButton();
-    if (!btn) {
-      ui.toast('已经是最后一章');
-      stopAutoScroll();
-      return false;
-    }
-    lastAdvance = now;
-    pull = 0;
-    ui.setPull(0);
-    btn.click();
-    ui.toast('下一章');
-    return true;
+  const findNextChapterButton = () => findByText(NEXT_CHAPTER_TEXT, [document.querySelector('.readerFooter'), document.body]);
+
+  // 双栏翻页模式：页面不能滚动，且有「下一页」按钮
+  function isPaged() {
+    if (isScrollable()) return false;
+    const btn = findByText(NEXT_PAGE_TEXT, [document.body]);
+    return !!btn && btn.getClientRects().length > 0;
   }
 
-  // ---- 连续阅读：章末继续下滑 ----
+  function hintPaged() {
+    if (pagedHinted) return;
+    pagedHinted = true;
+    ui.toast('连续滚动需要单栏模式：点右侧「单双栏切换」按钮', 3500);
+  }
 
-  function addPull(delta) {
-    if (!cfg.enabled || !cfg.flowMode || !isScrollable() || !atBottom()) return;
-    pull += delta;
-    clearTimeout(pullTimer);
-    pullTimer = setTimeout(() => {
-      pull = 0;
-      ui.setPull(0);
-    }, PULL_RESET_MS);
-    if (pull >= PULL_THRESHOLD) goNextChapter();
-    else ui.setPull(pull / PULL_THRESHOLD);
+  function endOfBook() {
+    stopAutoScroll();
+    if (Date.now() - endHintedAt > 5000) {
+      endHintedAt = Date.now();
+      ui.toast('已经是最后一章');
+    }
+  }
+
+  // ---- 无缝接章 ----
+
+  function readerCanvases() {
+    return [...document.querySelectorAll('canvas')].filter((c) => {
+      if (c.closest(`#${HISTORY_ID}`)) return false;
+      const r = c.getBoundingClientRect();
+      return c.width > 0 && c.height > 0 && r.width >= 200 && r.height >= 20;
+    });
+  }
+
+  function commonAncestor(nodes) {
+    let a = nodes[0].parentElement;
+    while (a && !nodes.every((n) => a.contains(n))) a = a.parentElement;
+    return a;
+  }
+
+  // 改动 DOM 后让 el 保持在屏幕上原来的位置（浏览器的滚动锚定做没做都适用）
+  function keepInPlace(el, mutate) {
+    const before = el ? el.getBoundingClientRect().top : 0;
+    mutate();
+    if (el) window.scrollBy(0, el.getBoundingClientRect().top - before);
+  }
+
+  // 把“视口上方一屏 ~ 章末”这段画布的像素复制下来
+  function buildHistory(canvases) {
+    const sy = window.scrollY;
+    const keepFrom = sy - window.innerHeight;
+    const items = canvases
+      .map((c) => ({ c, r: c.getBoundingClientRect() }))
+      .filter(({ r }) => r.bottom + sy > keepFrom);
+    if (!items.length) return null;
+
+    const top = Math.min(sy, Math.max(keepFrom, Math.min(...items.map(({ r }) => r.top + sy))));
+    const bottom = Math.max(...items.map(({ r }) => r.bottom + sy));
+
+    const el = document.createElement('div');
+    el.id = HISTORY_ID;
+    el.style.cssText = `position:relative;height:${bottom - top + CHAPTER_GAP}px;overflow:hidden;pointer-events:none;overflow-anchor:none;`;
+
+    for (const { c, r } of items) {
+      const docTop = r.top + sy;
+      const cut = Math.max(0, top - docTop); // 画布顶部被裁掉的 CSS 像素
+      const cssHeight = r.height - cut;
+      const scaleY = c.height / r.height;
+      const copy = document.createElement('canvas');
+      copy.width = c.width;
+      copy.height = Math.max(1, Math.round(cssHeight * scaleY));
+      copy.getContext('2d').drawImage(c, 0, cut * scaleY, c.width, copy.height, 0, 0, c.width, copy.height);
+      copy.style.cssText = `position:absolute;top:${docTop + cut - top}px;width:${r.width}px;height:${cssHeight}px;`;
+      copy.dataset.left = String(r.left);
+      el.appendChild(copy);
+    }
+    return { el, viewOffset: sy - top };
+  }
+
+  // 插在正文容器前面；校验正文确实被往下推了，否则换外层再试
+  function insertHistory(h, canvases) {
+    const probe = canvases[0];
+    const docTop = () => probe.getBoundingClientRect().top + window.scrollY;
+    const before = docTop();
+    let anchor = commonAncestor(canvases);
+    for (let i = 0; anchor && anchor !== document.body && i < 6; i++, anchor = anchor.parentElement) {
+      anchor.parentNode.insertBefore(h.el, anchor);
+      if (Math.abs(docTop() - before - h.el.offsetHeight) < 2) {
+        const left = h.el.getBoundingClientRect().left;
+        for (const copy of h.el.children) copy.style.left = `${Number(copy.dataset.left) - left}px`;
+        return true;
+      }
+      h.el.remove();
+    }
+    return false;
+  }
+
+  function dropHistory() {
+    if (!history) return;
+    const el = history;
+    history = null;
+    keepInPlace(el.nextElementSibling, () => el.remove());
+  }
+
+  // 下一章加载期间，阅读器可能会把页面滚回顶部，这里把位置钉住，直到内容稳定或用户自己动了
+  function holdScroll(y) {
+    const start = performance.now();
+    let lastFix = start;
+    const fix = () => {
+      if (Math.abs(window.scrollY - y) > 1) {
+        window.scrollTo(0, y);
+        lastFix = performance.now();
+      }
+    };
+    const release = () => {
+      hold = null;
+      window.removeEventListener('scroll', fix);
+      for (const type of ['wheel', 'keydown', 'touchstart', 'mousedown']) window.removeEventListener(type, release, true);
+      lastY = window.scrollY;
+    };
+    const check = () => {
+      if (!hold) return;
+      const now = performance.now();
+      if (now - start > 6000 || (now - start > 1200 && now - lastFix > 800)) return release();
+      fix();
+      requestAnimationFrame(check);
+    };
+    window.addEventListener('scroll', fix, { passive: true });
+    for (const type of ['wheel', 'keydown', 'touchstart', 'mousedown']) window.addEventListener(type, release, true);
+    hold = { release };
+    requestAnimationFrame(check);
+  }
+
+  function continueToNextChapter() {
+    if (hold || Date.now() - lastAdvance < ADVANCE_COOLDOWN_MS) return;
+    const btn = findNextChapterButton();
+    if (!btn) return endOfBook();
+    lastAdvance = Date.now();
+
+    dropHistory();
+    const canvases = readerCanvases();
+    const h = canvases.length ? buildHistory(canvases) : null;
+    if (h && insertHistory(h, canvases)) {
+      history = h.el;
+      const y = h.el.getBoundingClientRect().top + window.scrollY + h.viewOffset;
+      window.scrollTo(0, y);
+      btn.click();
+      holdScroll(y);
+    } else {
+      // 拿不到画布（DOM 渲染的旧版正文等）时退化为直接翻到下一章
+      btn.click();
+      ui.toast('下一章');
+    }
+  }
+
+  // ---- 触发 ----
+
+  window.addEventListener(
+    'scroll',
+    () => {
+      const y = window.scrollY;
+      const down = y > lastY;
+      lastY = y;
+      if (!cfg.enabled || !cfg.flowMode || hold) return;
+      // 上一章的快照滚出视口一屏以上就移除，让页面恢复成阅读器原本的结构
+      if (history && history.getBoundingClientRect().bottom < -window.innerHeight) dropHistory();
+      if (down && isScrollable() && nearEnd()) continueToNextChapter();
+    },
+    { passive: true },
+  );
+
+  // 已经在底部（或章节太短不能滚动）时继续往下，scroll 事件不会触发，靠滚轮 / 按键兜底
+  function pushDown() {
+    if (!cfg.enabled || !cfg.flowMode || hold) return;
+    if (isPaged()) return hintPaged();
+    if (!isScrollable() || nearEnd()) continueToNextChapter();
   }
 
   window.addEventListener(
     'wheel',
     (e) => {
-      if (e.deltaY > 0) addPull(e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY);
+      if (e.deltaY > 0) pushDown();
     },
     { passive: true },
   );
@@ -89,32 +244,38 @@
   window.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
     if (e.target instanceof Element && e.target.closest('input, textarea, [contenteditable]')) return;
-    if (e.key === 'ArrowDown') addPull(PULL_THRESHOLD / 3);
-    else if (e.key === 'PageDown' || (e.key === ' ' && !e.shiftKey)) addPull(PULL_THRESHOLD / 2);
+    if (e.key === 'ArrowDown' || e.key === 'PageDown' || (e.key === ' ' && !e.shiftKey)) pushDown();
   });
 
   // ---- 自动滚屏 ----
 
-  const auto = { running: false, raf: 0, last: 0, carry: 0, bottomSince: 0 };
+  const auto = { running: false, raf: 0, last: 0, carry: 0, stuckSince: 0 };
 
   function tick(t) {
     if (!auto.running) return;
     const dt = auto.last ? Math.min(t - auto.last, 100) : 0;
     auto.last = t;
 
-    if (!isScrollable()) {
-      // 新章节还没渲染出来时也会短暂不可滚动，等一等
-      auto.raf = requestAnimationFrame(tick);
-      return;
-    }
-
-    if (atBottom()) {
-      // 停在章末，留出读完最后一屏的时间再翻章
-      auto.bottomSince = auto.bottomSince || t;
+    if (hold) {
+      // 等下一章加载
+    } else if (!isScrollable() || remaining() <= 1) {
+      // 章节很短或已到底：留出读完这一屏的时间再接下一章
+      auto.stuckSince = auto.stuckSince || t;
       const wait = Math.max(1500, ((window.innerHeight * 0.6) / cfg.scrollSpeed) * 1000);
-      if (cfg.flowMode && t - auto.bottomSince >= wait && goNextChapter()) auto.bottomSince = 0;
+      if (t - auto.stuckSince >= wait) {
+        auto.stuckSince = 0;
+        if (isPaged()) {
+          hintPaged();
+          return pauseAutoScroll();
+        }
+        if (!cfg.flowMode) {
+          ui.toast('本章已读完');
+          return pauseAutoScroll();
+        }
+        continueToNextChapter();
+      }
     } else {
-      auto.bottomSince = 0;
+      auto.stuckSince = 0;
       auto.carry += (cfg.scrollSpeed * dt) / 1000;
       const step = Math.floor(auto.carry);
       if (step > 0) {
@@ -127,11 +288,14 @@
 
   function startAutoScroll() {
     if (!cfg.enabled) return;
-    if (!isScrollable()) ui.toast('当前页面不能上下滚动，请在微信读书里切换到单栏模式');
+    if (isPaged()) {
+      pagedHinted = false;
+      hintPaged();
+    }
     auto.running = true;
     auto.last = 0;
     auto.carry = 0;
-    auto.bottomSince = 0;
+    auto.stuckSince = 0;
     cancelAnimationFrame(auto.raf);
     auto.raf = requestAnimationFrame(tick);
     ui.showBar();
@@ -175,7 +339,7 @@
       root.innerHTML = `
 <style>
   :host { all: initial; }
-  .bar, .toast, .pull {
+  .bar, .toast {
     position: fixed; z-index: 2147483647;
     font: 13px/1 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
     color: #fff; background: rgba(30, 32, 36, .82);
@@ -191,28 +355,17 @@
   .speed { min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; opacity: .85; }
   .toast {
     left: 50%; bottom: 72px; transform: translateX(-50%); padding: 8px 14px;
-    opacity: 0; transition: opacity .2s; pointer-events: none;
+    opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap;
   }
   .toast.show { opacity: 1; }
-  .pull {
-    left: 50%; bottom: 24px; transform: translateX(-50%); padding: 8px 14px;
-    opacity: 0; transition: opacity .15s; pointer-events: none; overflow: hidden;
-  }
-  .pull.show { opacity: 1; }
-  .pull i {
-    position: absolute; left: 0; top: 0; bottom: 0; background: rgba(27, 136, 238, .55);
-    width: 0; transition: width .1s;
-  }
-  .pull span { position: relative; }
 </style>
-<div class="bar" part="bar">
+<div class="bar">
   <button class="play" title="暂停 / 继续"></button>
   <button class="slower" title="减速">−</button>
   <span class="speed"></span>
   <button class="faster" title="加速">+</button>
   <button class="close" title="关闭自动滚屏">×</button>
 </div>
-<div class="pull"><i></i><span>继续下滑进入下一章</span></div>
 <div class="toast"></div>`;
       root.querySelector('.play').addEventListener('click', toggleAutoScroll);
       root.querySelector('.slower').addEventListener('click', () => changeSpeed(-10));
@@ -235,19 +388,13 @@
       hideBar() {
         root?.querySelector('.bar').classList.remove('show');
       },
-      setPull(ratio) {
-        if (!ratio && !root) return;
-        mount();
-        root.querySelector('.pull').classList.toggle('show', ratio > 0);
-        root.querySelector('.pull i').style.width = `${Math.min(1, ratio) * 100}%`;
-      },
-      toast(text) {
+      toast(text, ms = 1600) {
         mount();
         const el = root.querySelector('.toast');
         el.textContent = text;
         el.classList.add('show');
         clearTimeout(toastTimer);
-        toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+        toastTimer = setTimeout(() => el.classList.remove('show'), ms);
       },
     };
   })();
@@ -255,8 +402,8 @@
   // ---- 与 popup / 快捷键通信 ----
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (msg?.type === 'wrs:toggleAutoScroll') sendResponse({ running: toggleAutoScroll() });
-    else if (msg?.type === 'wrs:getAutoScroll') sendResponse({ running: auto.running });
+    if (msg?.type === 'wrs:toggleAutoScroll') sendResponse({ running: toggleAutoScroll(), paged: isPaged() });
+    else if (msg?.type === 'wrs:getAutoScroll') sendResponse({ running: auto.running, paged: isPaged() });
   });
 
   globalThis.WRSFlow = {
@@ -264,7 +411,11 @@
       cfg.enabled = s.enabled;
       cfg.flowMode = s.flowMode;
       cfg.scrollSpeed = s.scrollSpeed;
-      if (!s.enabled) stopAutoScroll();
+      if (!s.enabled) {
+        stopAutoScroll();
+        hold?.release();
+        dropHistory();
+      }
       ui.renderBar();
     },
   };

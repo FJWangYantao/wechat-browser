@@ -38,7 +38,7 @@
     fontFamily: '', // 空 = 原版字体
     contentWidth: 0, // px，0 = 原版宽度
     immersive: false, // 顶栏、侧边按钮悬停才显示
-    flowMode: true, // 瀑布流：章末继续下滑自动进入下一章
+    flowMode: true, // 连续滚动：章末无缝接上下一章
     scrollSpeed: 60, // 自动滚屏速度 px/s
     customCss: '',
   };
