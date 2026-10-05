@@ -46,15 +46,44 @@
 
   // AI 陪读的接口配置单独存放，content script 不读取 API Key。
   const AI_STORAGE_KEY = 'ai';
-  const AI_MODELS = [
-    { id: 'claude-opus-5-5', name: 'Claude Opus 5.5（默认，最强）' },
-    { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5（更快、更省）' },
-    { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5（最快、最省）' },
-  ];
+  // 每家服务商的 Key / 模型 / 接口地址各存一份，切换服务商不会互相覆盖
+  const AI_PROVIDERS = {
+    anthropic: {
+      name: 'Anthropic Claude',
+      company: 'Anthropic',
+      keyField: 'apiKey',
+      modelField: 'model',
+      baseURLField: 'baseURL',
+      keyUrl: 'https://console.anthropic.com/settings/keys',
+      keyPlaceholder: 'sk-ant-…',
+      models: [
+        { id: 'claude-opus-5-5', name: 'Claude Opus 5.5（默认，最强）' },
+        { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5（更快、更省）' },
+        { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5（最快、最省）' },
+      ],
+    },
+    deepseek: {
+      name: 'DeepSeek（深度求索）',
+      company: 'DeepSeek',
+      keyField: 'deepseekApiKey',
+      modelField: 'deepseekModel',
+      baseURLField: 'deepseekBaseURL',
+      keyUrl: 'https://platform.deepseek.com/api_keys',
+      keyPlaceholder: 'sk-…',
+      models: [
+        { id: 'deepseek-chat', name: 'deepseek-chat（快速回答）' },
+        { id: 'deepseek-reasoner', name: 'deepseek-reasoner（深度思考，较慢）' },
+      ],
+    },
+  };
   const AI_DEFAULTS = {
+    provider: 'anthropic',
     apiKey: '',
     model: 'claude-opus-5-5',
-    baseURL: '', // 留空 = 官方接口；可填自建代理地址
+    baseURL: '', // 留空 = 官方接口；可填代理地址
+    deepseekApiKey: '',
+    deepseekModel: 'deepseek-chat',
+    deepseekBaseURL: '',
   };
 
   const GENERIC_FAMILIES = new Set([
@@ -102,7 +131,7 @@
   root.WRS = {
     STORAGE_KEY,
     AI_STORAGE_KEY,
-    AI_MODELS,
+    AI_PROVIDERS,
     AI_DEFAULTS,
     loadAiSettings,
     saveAiSettings,

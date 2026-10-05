@@ -1,12 +1,13 @@
 (() => {
   'use strict';
-  const { PRESETS, FONTS, DEFAULTS, STORAGE_KEY, AI_MODELS, loadSettings, loadAiSettings, saveAiSettings } = globalThis.WRS;
+  const { PRESETS, FONTS, DEFAULTS, STORAGE_KEY, AI_PROVIDERS, loadSettings, loadAiSettings, saveAiSettings } = globalThis.WRS;
 
   const $ = (id) => document.getElementById(id);
   const CUSTOM_FONT = '__custom__';
 
   let state = null;
   let saveTimer = 0;
+  let ai = null;
 
   // 输入频繁的控件（滑块、文本框）防抖写入；页面通过 storage.onChanged 实时更新。
   function flush() {
@@ -41,11 +42,11 @@
       themes.appendChild(btn);
     }
 
-    for (const m of AI_MODELS) {
+    for (const [id, p] of Object.entries(AI_PROVIDERS)) {
       const opt = document.createElement('option');
-      opt.value = m.id;
-      opt.textContent = m.name;
-      $('aiModel').appendChild(opt);
+      opt.value = id;
+      opt.textContent = p.name;
+      $('aiProvider').appendChild(opt);
     }
 
     const select = $('fontPreset');
@@ -113,8 +114,9 @@
     $('autoScroll').addEventListener('click', toggleAutoScroll);
 
     $('aiSelectButton').addEventListener('change', (e) => update({ aiSelectButton: e.target.checked }));
-    $('aiKey').addEventListener('input', (e) => saveAiSettings({ apiKey: e.target.value.trim() }));
-    $('aiModel').addEventListener('change', (e) => saveAiSettings({ model: e.target.value }));
+    $('aiProvider').addEventListener('change', (e) => updateAi({ provider: e.target.value }));
+    $('aiKey').addEventListener('input', (e) => updateAi({ [provider().keyField]: e.target.value.trim() }, false));
+    $('aiModel').addEventListener('change', (e) => updateAi({ [provider().modelField]: e.target.value }));
     $('aiBaseURLSave').addEventListener('click', saveBaseURL);
     $('aiPanel').addEventListener('click', async () => {
       const res = await sendToTab({ type: 'wrs:toggleAiPanel' });
@@ -163,12 +165,49 @@
     if (res?.running) window.close();
   }
 
+  // ---- AI 陪读：按当前服务商显示对应的 Key / 模型 / 接口地址 ----
+
+  const provider = () => AI_PROVIDERS[ai.provider] || AI_PROVIDERS.anthropic;
+
+  function renderAi() {
+    const p = provider();
+    $('aiProvider').value = ai.provider;
+    $('aiKeyLabel').textContent = `${p.company} API Key`;
+    $('aiKeyLink').href = p.keyUrl;
+    $('aiKey').placeholder = p.keyPlaceholder;
+    $('aiKey').value = ai[p.keyField]; // 输入 Key 时不重绘（updateAi 第二个参数），这里可以直接覆盖
+
+    const model = $('aiModel');
+    model.replaceChildren(
+      ...p.models.map((m) => {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.name;
+        return opt;
+      }),
+    );
+    model.value = ai[p.modelField];
+
+    $('aiBaseURL').value = ai[p.baseURLField];
+    $('aiBaseURL').placeholder = `留空使用 ${p.company} 官方接口`;
+    $('aiBaseURLHint').textContent =
+      ai.provider === 'deepseek' ? '可填写兼容 OpenAI 接口的 DeepSeek 代理地址。' : '所在网络无法直连官方接口时，可填写兼容 Anthropic 接口的代理地址。';
+    $('aiPrivacy').textContent = `选中的文字和附近段落会发给 ${p.company} 用于回答 · Alt+Shift+A`;
+  }
+
+  async function updateAi(patch, rerender = true) {
+    Object.assign(ai, patch);
+    if (rerender) renderAi();
+    await saveAiSettings(patch);
+  }
+
   // 自定义接口地址需要额外的主机权限（必须在点击里申请）
   async function saveBaseURL() {
     const hint = $('aiBaseURLHint');
+    const field = provider().baseURLField;
     const raw = $('aiBaseURL').value.trim().replace(/\/+$/, '');
     if (!raw) {
-      await saveAiSettings({ baseURL: '' });
+      await updateAi({ [field]: '' });
       hint.textContent = '已恢复使用官方接口。';
       return;
     }
@@ -184,17 +223,15 @@
       hint.textContent = '需要允许访问该地址才能使用。';
       return;
     }
-    await saveAiSettings({ baseURL: raw });
-    $('aiBaseURL').value = raw;
-    hint.textContent = '已保存。';
+    await updateAi({ [field]: raw });
+    $('aiBaseURLHint').textContent = '已保存。';
   }
 
   buildStatic();
   bind();
-  loadAiSettings().then((ai) => {
-    $('aiKey').value = ai.apiKey;
-    $('aiModel').value = ai.model;
-    $('aiBaseURL').value = ai.baseURL;
+  loadAiSettings().then((s) => {
+    ai = s;
+    renderAi();
   });
   loadSettings().then((s) => {
     state = s;

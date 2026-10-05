@@ -79,8 +79,12 @@
         划选文字后显示「问 AI」按钮
       </label>
       <div class="row spaced">
-        <label for="aiKey">Anthropic API Key</label>
-        <a class="link small" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">获取</a>
+        <label for="aiProvider">服务商</label>
+      </div>
+      <select id="aiProvider"></select>
+      <div class="row spaced">
+        <label for="aiKey" id="aiKeyLabel">API Key</label>
+        <a class="link small" id="aiKeyLink" target="_blank" rel="noreferrer">获取</a>
       </div>
       <input type="password" id="aiKey" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
       <div class="row spaced">
@@ -90,13 +94,13 @@
       <details class="inline">
         <summary>自定义接口地址</summary>
         <div class="url-row">
-          <input type="text" id="aiBaseURL" placeholder="留空使用官方接口" spellcheck="false" />
+          <input type="text" id="aiBaseURL" spellcheck="false" />
           <button type="button" id="aiBaseURLSave">保存</button>
         </div>
-        <p class="hint" id="aiBaseURLHint">所在网络无法直连官方接口时，可填写兼容 Anthropic 接口的代理地址。</p>
+        <p class="hint" id="aiBaseURLHint"></p>
       </details>
       <button type="button" class="primary" id="aiPanel">打开 AI 陪读面板</button>
-      <p class="hint">选中的文字和附近段落会发给 Anthropic 用于回答 · Alt+Shift+A</p>
+      <p class="hint" id="aiPrivacy"></p>
     </section>
 
     <details>
