@@ -15,7 +15,7 @@
 | 自定义 CSS | 高级用户可直接写 CSS 覆盖任意元素 |
 | 连续滚动 | 像刷知乎一样一直往下滚，章与章无缝接上：画面不跳、不用点「下一章」 |
 | 自动滚屏 | 匀速向下滚动，速度 10–400 px/s 可调，同样无缝跨章。页面右下角有暂停 / 调速浮条 |
-| AI 陪读 | 拖选一段文字，点「✦ 问 AI」：解释、大白话、背景知识、延伸思考，可多轮追问；不选文字也能问当前这一页。可选 **Anthropic Claude**（默认 Claude Opus 5.5）或 **DeepSeek**（deepseek-chat / deepseek-reasoner），在弹窗里填对应的 API Key |
+| AI 陪读 | 拖选一段文字，点「✦ 问 AI」：解释、大白话、背景知识、延伸思考，可多轮追问；不选文字也能问当前这一页。可选 **Anthropic Claude**（默认 Claude Opus 5.5）或 **DeepSeek**（deepseek-chat / deepseek-reasoner），在弹窗里填对应的 API Key。面板打开时正文自动让位，在左侧剩余空间里居中（窗口太窄时面板直接覆盖） |
 | 快捷键 | `Alt+Shift+W` 开关插件，`Alt+Shift+S` 自动滚屏，`Alt+Shift+A` AI 陪读面板（可在 `chrome://extensions/shortcuts` 修改） |
 
 修改会实时作用到已打开的阅读页，配置保存在 `chrome.storage.local`。

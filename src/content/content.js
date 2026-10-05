@@ -56,7 +56,7 @@
 
     if (s.contentWidth) {
       out.push(`${SEL.column}, ${SEL.topBar} {
-  max-width: min(var(--wrs-width), calc(100vw - 48px)) !important;
+  max-width: min(var(--wrs-width), calc(100vw - var(--wrs-ai-w, 0px) - 48px)) !important;
   width: 100% !important;
 }`);
     }
@@ -65,7 +65,7 @@
     out.push(`${SEL.controls} {
   position: fixed !important;
   left: auto !important;
-  right: 20px !important;
+  right: calc(var(--wrs-ai-w, 0px) + 20px) !important;
   margin-left: 0 !important;
   top: 50% !important;
   bottom: auto !important;
@@ -77,11 +77,11 @@
     if (s.immersive) {
       out.push(`${SEL.topBar}, ${SEL.controls} {
   opacity: 0 !important;
-  transition: opacity .2s ease !important;
+  transition: opacity .2s ease, right .22s ease !important;
 }
 ${SEL.topBar}:hover, ${SEL.controls}:hover {
   opacity: 1 !important;
-  transition: opacity .2s ease .5s !important;
+  transition: opacity .2s ease .5s, right .22s ease !important;
 }`);
     }
 

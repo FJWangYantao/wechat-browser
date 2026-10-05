@@ -236,6 +236,80 @@ ${question}`;
     return out.join('');
   }
 
+  // ---- 打开面板时正文让位：页面右侧留出面板宽度，阅读区在剩余空间里居中 ----
+
+  const pageLayout = (() => {
+    const PANEL_WIDTH = 400;
+    const MIN_READING_WIDTH = 560; // 剩余空间不够时，面板直接盖在页面上
+    const STYLE_ID = 'wrs-ai-layout';
+    const COLUMN = '.readerContent .app_content';
+    const BUTTONS_GUTTER = 96; // 右侧工具按钮（宽 56、距边 20）两边各留出的空间
+    // 这些元素如果是 fixed 且水平居中，就跟着往左挪半个面板宽
+    const FIXED_CANDIDATES = '.readerTopBar, .readerFooter, .readerContent, .readerContent .app_content';
+    let wanted = false;
+    let width = 0;
+    let settleTimer = 0;
+
+    const CSS = `
+body { transition: margin-right .22s ease; }
+html[data-wrs-ai] body { margin-right: var(--wrs-ai-w) !important; }
+html[data-wrs-ai] [data-wrs-ai-shift] { translate: calc(var(--wrs-ai-w) / -2) 0 !important; }
+html[data-wrs-ai-fit] ${COLUMN} { max-width: calc(100vw - var(--wrs-ai-w) - ${BUTTONS_GUTTER * 2}px) !important; }
+`;
+
+    function ensureStyle() {
+      if (document.getElementById(STYLE_ID)) return;
+      const el = document.createElement('style');
+      el.id = STYLE_ID;
+      el.textContent = CSS;
+      (document.head || document.documentElement).appendChild(el);
+    }
+
+    function markFixed() {
+      for (const el of document.querySelectorAll('[data-wrs-ai-shift]')) el.removeAttribute('data-wrs-ai-shift');
+      if (!width) return;
+      const vw = window.innerWidth;
+      for (const el of document.querySelectorAll(FIXED_CANDIDATES)) {
+        if (getComputedStyle(el).position !== 'fixed') continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < vw - 8 && Math.abs(r.left + r.width / 2 - vw / 2) < 8) el.setAttribute('data-wrs-ai-shift', '');
+      }
+    }
+
+    // 过渡结束后：阅读区如果按视口宽度定死、仍然伸到右侧按钮或面板下面，就强制收窄；再让阅读器按新宽度重排
+    function settle() {
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        const html = document.documentElement;
+        html.removeAttribute('data-wrs-ai-fit');
+        const col = width && document.querySelector(COLUMN);
+        if (col && col.getBoundingClientRect().right > window.innerWidth - width - BUTTONS_GUTTER) html.setAttribute('data-wrs-ai-fit', '');
+        window.dispatchEvent(new Event('resize'));
+      }, 260);
+    }
+
+    function apply() {
+      const next = wanted && window.innerWidth - PANEL_WIDTH >= MIN_READING_WIDTH ? PANEL_WIDTH : 0;
+      if (next === width) return;
+      width = next;
+      ensureStyle();
+      const html = document.documentElement;
+      html.style.setProperty('--wrs-ai-w', `${width}px`);
+      html.toggleAttribute('data-wrs-ai', width > 0);
+      markFixed();
+      settle();
+    }
+
+    window.addEventListener('resize', () => wanted && apply());
+
+    return {
+      set(open) {
+        wanted = open;
+        apply();
+      },
+    };
+  })();
+
   // ---- 界面（Shadow DOM，不受页面样式影响） ----
 
   const ui = (() => {
@@ -435,12 +509,14 @@ textarea:focus { outline: 2px solid rgba(27,136,238,.35); border-color: var(--ac
     function open() {
       mount();
       root.querySelector('.panel').classList.add('open');
+      pageLayout.set(true);
       setTimeout(() => root.querySelector('textarea').focus(), 60);
     }
 
     function close() {
       if (!root) return;
       root.querySelector('.panel').classList.remove('open');
+      pageLayout.set(false);
     }
 
     function messageHtml(m) {

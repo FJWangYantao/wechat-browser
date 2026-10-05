@@ -143,8 +143,10 @@
     for (let i = 0; anchor && anchor !== document.body && i < 6; i++, anchor = anchor.parentElement) {
       anchor.parentNode.insertBefore(h.el, anchor);
       if (Math.abs(docTop() - before - h.el.offsetHeight) < 2) {
-        const left = h.el.getBoundingClientRect().left;
-        for (const copy of h.el.children) copy.style.left = `${Number(copy.dataset.left) - left}px`;
+        // 相对快照块的中线定位：AI 面板开合导致正文重新居中时，快照跟着一起移动
+        const rect = h.el.getBoundingClientRect();
+        const center = rect.left + rect.width / 2;
+        for (const copy of h.el.children) copy.style.left = `calc(50% + ${Number(copy.dataset.left) - center}px)`;
         return true;
       }
       h.el.remove();
@@ -345,7 +347,10 @@
     color: #fff; background: rgba(30, 32, 36, .82);
     backdrop-filter: blur(6px); border-radius: 999px;
   }
-  .bar { right: 24px; bottom: 24px; display: none; align-items: center; gap: 2px; padding: 4px; }
+  .bar {
+    right: calc(24px + var(--wrs-ai-w, 0px)); bottom: 24px; display: none; align-items: center; gap: 2px; padding: 4px;
+    transition: right .22s ease;
+  }
   .bar.show { display: flex; }
   .bar button {
     all: unset; min-width: 28px; height: 28px; padding: 0 6px; border-radius: 999px;
@@ -354,7 +359,7 @@
   .bar button:hover { background: rgba(255, 255, 255, .16); }
   .speed { min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; opacity: .85; }
   .toast {
-    left: 50%; bottom: 72px; transform: translateX(-50%); padding: 8px 14px;
+    left: calc(50% - var(--wrs-ai-w, 0px) / 2); bottom: 72px; transform: translateX(-50%); padding: 8px 14px;
     opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap;
   }
   .toast.show { opacity: 1; }
