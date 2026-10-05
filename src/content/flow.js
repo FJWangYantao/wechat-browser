@@ -3,9 +3,9 @@
  *   - 无缝接章：快滚到章末时，把当前章节末尾的画面复制成静态块留在上方，
  *     再加载下一章并对齐滚动位置。画面不跳，继续往下滚就是下一章。
  *   - 自动滚屏：匀速向下滚动，同样无缝跨章。
+ *   - 双栏（左右翻页）模式：滚轮 / 触控板滑动直接翻页，到章末自动进下一章，不用点按钮。
  *
  * 微信读书一次只渲染一章，加载下一章靠点击页面上的「下一章」按钮。
- * 双栏（左右翻页）模式下页面不能上下滚动，需要先切到单栏。
  */
 (() => {
   'use strict';
@@ -13,6 +13,7 @@
 
   const NEXT_CHAPTER_TEXT = /^\s*下一章\s*$/;
   const NEXT_PAGE_TEXT = /^\s*下一页\s*$/;
+  const PREV_PAGE_TEXT = /^\s*上一页\s*$/;
   const HISTORY_ID = 'wrs-history';
   const CHAPTER_GAP = 96; // 上一章末尾与下一章之间的留白
   const ADVANCE_COOLDOWN_MS = 2500;
@@ -58,11 +59,40 @@
 
   const findNextChapterButton = () => findByText(NEXT_CHAPTER_TEXT, [document.querySelector('.readerFooter'), document.body]);
 
-  // 双栏翻页模式：页面不能滚动，且有「下一页」按钮
+  // 双栏翻页模式：页面不能滚动，且有「上一页 / 下一页」按钮。滚轮事件很密，结果缓存一小会儿
+  let pagedCache = { at: 0, value: false };
   function isPaged() {
     if (isScrollable()) return false;
-    const btn = findByText(NEXT_PAGE_TEXT, [document.body]);
-    return !!btn && btn.getClientRects().length > 0;
+    const now = performance.now();
+    if (now - pagedCache.at < 300) return pagedCache.value;
+    const btn = findByText(NEXT_PAGE_TEXT, [document.body]) || findByText(PREV_PAGE_TEXT, [document.body]);
+    pagedCache = { at: now, value: !!btn && btn.getClientRects().length > 0 };
+    return pagedCache.value;
+  }
+
+  // 鼠标所在位置是否在一个自己会滚动的区域里（目录、笔记侧栏，或用内层容器滚动的正文）
+  function innerScroller(target) {
+    for (let el = target instanceof Element ? target : null; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
+      const oy = getComputedStyle(el).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 2) return el;
+    }
+    return null;
+  }
+
+  // 当前屏幕上的正文（由 page-hook.js 从画布记录中还原），用来判断页面有没有翻过去
+  function visibleSignature() {
+    let text = '';
+    const onResponse = (e) => {
+      try {
+        text = JSON.parse(e.detail).text || '';
+      } catch (_) {
+        /* ignore */
+      }
+    };
+    document.addEventListener('wrs:response', onResponse, { once: true });
+    document.dispatchEvent(new CustomEvent('wrs:request', { detail: JSON.stringify({ type: 'visibleText' }) }));
+    document.removeEventListener('wrs:response', onResponse);
+    return text.slice(0, 300);
   }
 
   function hintPaged() {
@@ -230,15 +260,73 @@
 
   // 已经在底部（或章节太短不能滚动）时继续往下，scroll 事件不会触发，靠滚轮 / 按键兜底
   function pushDown() {
-    if (!cfg.enabled || !cfg.flowMode || hold) return;
-    if (isPaged()) return hintPaged();
+    if (!cfg.enabled || !cfg.flowMode || hold || isPaged()) return;
     if (!isScrollable() || nearEnd()) continueToNextChapter();
+  }
+
+  // ---- 双栏模式：滚轮 / 触控板滑动翻页 ----
+
+  // 一次滑动（含触控板的惯性余波）只翻一页
+  const paging = { sum: 0, lockUntil: 0, idle: 0, native: null };
+  const SWIPE_THRESHOLD = 50;
+
+  function flipPage(dir) {
+    const btn = dir > 0 ? findByText(NEXT_PAGE_TEXT, [document.body]) || findNextChapterButton() : findByText(PREV_PAGE_TEXT, [document.body]);
+    if (btn) {
+      btn.click();
+      pagedCache.at = 0;
+    } else if (dir > 0 && !findByText(NEXT_PAGE_TEXT, [document.body])) {
+      endOfBook();
+    }
+  }
+
+  function pageByWheel(e) {
+    const now = performance.now();
+    if (now < paging.lockUntil) {
+      paging.lockUntil = now + 250; // 惯性余波还在，继续锁住
+      return;
+    }
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1;
+    const d = (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * unit;
+    clearTimeout(paging.idle);
+    paging.idle = setTimeout(() => (paging.sum = 0), 250);
+    paging.sum += d;
+    if (Math.abs(paging.sum) < SWIPE_THRESHOLD) return;
+
+    const dir = paging.sum > 0 ? 1 : -1;
+    paging.sum = 0;
+    paging.lockUntil = now + 450;
+    if (paging.native === true) return;
+    if (paging.native === false) return flipPage(dir);
+
+    // 第一次：先看阅读器自己会不会响应滚轮翻页，会的话插件就不插手，免得一次翻两页
+    const before = visibleSignature();
+    setTimeout(() => {
+      paging.native = before !== '' && visibleSignature() !== before;
+      if (!paging.native) flipPage(dir);
+    }, 400);
   }
 
   window.addEventListener(
     'wheel',
     (e) => {
-      if (e.deltaY > 0) pushDown();
+      if (!cfg.enabled || !cfg.flowMode) return;
+      const inner = innerScroller(e.target);
+      if (inner && !inner.querySelector('canvas')) return; // 目录、笔记等侧栏自己的滚动，不管
+      if (isPaged()) return pageByWheel(e);
+      if (e.deltaY <= 0) return;
+      if (inner) {
+        // 正文在内层容器里滚动：滚到底再往下就直接翻到下一章
+        if (inner.scrollTop + inner.clientHeight >= inner.scrollHeight - 4 && Date.now() - lastAdvance > ADVANCE_COOLDOWN_MS) {
+          const btn = findNextChapterButton();
+          if (btn) {
+            lastAdvance = Date.now();
+            btn.click();
+          }
+        }
+        return;
+      }
+      pushDown();
     },
     { passive: true },
   );

@@ -85,6 +85,9 @@ ${SEL.topBar}:hover, ${SEL.controls}:hover {
 }`);
     }
 
+    // 双栏模式下横向滑动用来翻页，禁掉浏览器“横滑返回上一页”的手势
+    if (s.flowMode) out.push(`html, body { overscroll-behavior-x: none !important; }`);
+
     if (s.customCss) out.push(`/* 自定义 CSS */\n${s.customCss}`);
     return out.join('\n\n');
   }

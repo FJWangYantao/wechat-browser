@@ -154,7 +154,7 @@
     btn.textContent = res?.running ? '暂停自动滚屏' : '开始自动滚屏';
     const hint = $('autoScrollHint');
     if (!res) hint.textContent = '请在微信读书阅读页中使用';
-    else if (res.paged) hint.textContent = '当前是双栏翻页模式，先点页面右侧的「单双栏切换」按钮切到单栏';
+    else if (res.paged) hint.textContent = '当前是双栏翻页模式：滑动即可翻页；自动滚屏需切到单栏';
     hint.classList.toggle('warn', !!res?.paged);
   }
 
