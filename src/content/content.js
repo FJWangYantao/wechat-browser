@@ -65,6 +65,8 @@ ${SEL.controls} {
 }`);
     }
 
+    // 隐藏的顶栏仍占着位置，鼠标扫过就会触发 :hover。
+    // 显示前加一段延迟，只有停留一会儿才出现；移开时立即淡出。
     if (s.immersive) {
       out.push(`${SEL.topBar}, ${SEL.controls} {
   opacity: 0 !important;
@@ -72,6 +74,7 @@ ${SEL.controls} {
 }
 ${SEL.topBar}:hover, ${SEL.controls}:hover {
   opacity: 1 !important;
+  transition: opacity .2s ease .5s !important;
 }`);
     }
 
