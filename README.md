@@ -15,7 +15,8 @@
 | 自定义 CSS | 高级用户可直接写 CSS 覆盖任意元素 |
 | 连续滚动 | 像刷知乎一样一直往下滚，章与章无缝接上：画面不跳、不用点「下一章」 |
 | 自动滚屏 | 匀速向下滚动，速度 10–400 px/s 可调，同样无缝跨章。页面右下角有暂停 / 调速浮条 |
-| 快捷键 | `Alt+Shift+W` 一键开关插件，`Alt+Shift+S` 开始 / 暂停自动滚屏（可在 `chrome://extensions/shortcuts` 修改） |
+| AI 陪读 | 拖选一段文字，点「✦ 问 AI」：解释、大白话、背景知识、延伸思考，可多轮追问；不选文字也能问当前这一页。需在弹窗里填写 Anthropic API Key，默认模型 Claude Opus 5.5 |
+| 快捷键 | `Alt+Shift+W` 开关插件，`Alt+Shift+S` 自动滚屏，`Alt+Shift+A` AI 陪读面板（可在 `chrome://extensions/shortcuts` 修改） |
 
 修改会实时作用到已打开的阅读页，配置保存在 `chrome.storage.local`。
 
@@ -54,6 +55,8 @@ src/
   3. 继续往下滚就是下一章；静态块滚出视口一屏后自动移除，页面恢复成阅读器原本的结构。
   
   找不到画布时（旧版 DOM 渲染）退化为直接翻到下一章。
+
+- **AI 陪读**：画布上没有真正的文字选区。`page-hook.js` 在拦截 `fillText` 时顺手记下每段字画在哪里，拖选结束后按鼠标起止位置还原出选中的文字和前后约 800 字的原文（支持单栏、双栏、跨画布）；用阅读器自带的「复制」时也会截下复制的文字。请求由后台 service worker 用官方 Anthropic SDK（`src/vendor/anthropic-sdk.mjs`，由 `npm install && npm run vendor` 生成）流式调用，并开启 `fallbacks: "default"`，模型误拒时由服务端换备用模型重答。选中的文字和附近段落会发送给 Anthropic；API Key 只保存在本机。
 
 ## 微信读书改版后怎么修
 

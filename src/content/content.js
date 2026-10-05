@@ -129,6 +129,7 @@ ${SEL.topBar}:hover, ${SEL.controls}:hover {
     pushToPage(s);
     relayoutIfNeeded(s);
     globalThis.WRSFlow?.update(s);
+    globalThis.WRSAi?.update(s);
   }
 
   document.addEventListener('wrs:hello', () => settings && pushToPage(settings));

@@ -40,7 +40,21 @@
     immersive: false, // 顶栏、侧边按钮悬停才显示
     flowMode: true, // 连续滚动：章末无缝接上下一章
     scrollSpeed: 60, // 自动滚屏速度 px/s
+    aiSelectButton: true, // 划选文字后显示「问 AI」按钮
     customCss: '',
+  };
+
+  // AI 陪读的接口配置单独存放，content script 不读取 API Key。
+  const AI_STORAGE_KEY = 'ai';
+  const AI_MODELS = [
+    { id: 'claude-opus-5-5', name: 'Claude Opus 5.5（默认，最强）' },
+    { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5（更快、更省）' },
+    { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5（最快、最省）' },
+  ];
+  const AI_DEFAULTS = {
+    apiKey: '',
+    model: 'claude-opus-5-5',
+    baseURL: '', // 留空 = 官方接口；可填自建代理地址
   };
 
   const GENERIC_FAMILIES = new Set([
@@ -74,8 +88,24 @@
     return next;
   }
 
+  async function loadAiSettings() {
+    const data = await chrome.storage.local.get(AI_STORAGE_KEY);
+    return Object.assign({}, AI_DEFAULTS, data[AI_STORAGE_KEY] || {});
+  }
+
+  async function saveAiSettings(patch) {
+    const next = Object.assign(await loadAiSettings(), patch);
+    await chrome.storage.local.set({ [AI_STORAGE_KEY]: next });
+    return next;
+  }
+
   root.WRS = {
     STORAGE_KEY,
+    AI_STORAGE_KEY,
+    AI_MODELS,
+    AI_DEFAULTS,
+    loadAiSettings,
+    saveAiSettings,
     PRESETS,
     FONTS,
     DEFAULTS,

@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const { PRESETS, FONTS, DEFAULTS, STORAGE_KEY, loadSettings } = globalThis.WRS;
+  const { PRESETS, FONTS, DEFAULTS, STORAGE_KEY, AI_MODELS, loadSettings, loadAiSettings, saveAiSettings } = globalThis.WRS;
 
   const $ = (id) => document.getElementById(id);
   const CUSTOM_FONT = '__custom__';
@@ -41,6 +41,13 @@
       themes.appendChild(btn);
     }
 
+    for (const m of AI_MODELS) {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.name;
+      $('aiModel').appendChild(opt);
+    }
+
     const select = $('fontPreset');
     for (const f of [...FONTS, { name: '自定义…', value: CUSTOM_FONT }]) {
       const opt = document.createElement('option');
@@ -70,6 +77,8 @@
     $('contentWidth').value = s.contentWidth || 800;
     $('widthValue').textContent = s.contentWidth ? `${s.contentWidth}px` : '原版';
     $('immersive').checked = s.immersive;
+
+    $('aiSelectButton').checked = s.aiSelectButton;
 
     $('flowMode').checked = s.flowMode;
     $('scrollSpeed').value = s.scrollSpeed;
@@ -102,6 +111,16 @@
     $('flowMode').addEventListener('change', (e) => update({ flowMode: e.target.checked }));
     $('scrollSpeed').addEventListener('input', (e) => update({ scrollSpeed: Number(e.target.value) }, { debounce: true }));
     $('autoScroll').addEventListener('click', toggleAutoScroll);
+
+    $('aiSelectButton').addEventListener('change', (e) => update({ aiSelectButton: e.target.checked }));
+    $('aiKey').addEventListener('input', (e) => saveAiSettings({ apiKey: e.target.value.trim() }));
+    $('aiModel').addEventListener('change', (e) => saveAiSettings({ model: e.target.value }));
+    $('aiBaseURLSave').addEventListener('click', saveBaseURL);
+    $('aiPanel').addEventListener('click', async () => {
+      const res = await sendToTab({ type: 'wrs:toggleAiPanel' });
+      if (res) window.close();
+      else $('aiPanel').textContent = '请在微信读书阅读页中使用';
+    });
 
     $('customCss').addEventListener('input', (e) => update({ customCss: e.target.value }, { debounce: true, render: false }));
 
@@ -144,8 +163,39 @@
     if (res?.running) window.close();
   }
 
+  // 自定义接口地址需要额外的主机权限（必须在点击里申请）
+  async function saveBaseURL() {
+    const hint = $('aiBaseURLHint');
+    const raw = $('aiBaseURL').value.trim().replace(/\/+$/, '');
+    if (!raw) {
+      await saveAiSettings({ baseURL: '' });
+      hint.textContent = '已恢复使用官方接口。';
+      return;
+    }
+    let url;
+    try {
+      url = new URL(raw);
+    } catch (_) {
+      hint.textContent = '地址格式不对，应类似 https://example.com';
+      return;
+    }
+    const granted = await chrome.permissions.request({ origins: [`${url.origin}/*`] });
+    if (!granted) {
+      hint.textContent = '需要允许访问该地址才能使用。';
+      return;
+    }
+    await saveAiSettings({ baseURL: raw });
+    $('aiBaseURL').value = raw;
+    hint.textContent = '已保存。';
+  }
+
   buildStatic();
   bind();
+  loadAiSettings().then((ai) => {
+    $('aiKey').value = ai.apiKey;
+    $('aiModel').value = ai.model;
+    $('aiBaseURL').value = ai.baseURL;
+  });
   loadSettings().then((s) => {
     state = s;
     render();

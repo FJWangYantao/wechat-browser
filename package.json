@@ -1,0 +1,12 @@
+{
+  "name": "weread-style",
+  "private": true,
+  "description": "微信读书样式定制 Chrome 插件（开发依赖仅用于打包 Anthropic SDK）",
+  "scripts": {
+    "vendor": "esbuild scripts/vendor-anthropic.js --bundle --format=esm --platform=browser --minify --legal-comments=eof --outfile=src/vendor/anthropic-sdk.mjs"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "0.131.0",
+    "esbuild": "0.28.2"
+  }
+}
