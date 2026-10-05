@@ -58,12 +58,19 @@
       out.push(`${SEL.column}, ${SEL.topBar} {
   max-width: min(var(--wrs-width), calc(100vw - 48px)) !important;
   width: 100% !important;
-}
-${SEL.controls} {
-  left: 50% !important;
-  margin-left: min(calc(var(--wrs-width) / 2 + 24px), calc(50vw - 72px)) !important;
 }`);
     }
+
+    // 右侧工具按钮在双栏模式下会压在正文上，统一挪到窗口右边缘、垂直居中。
+    out.push(`${SEL.controls} {
+  position: fixed !important;
+  left: auto !important;
+  right: 20px !important;
+  margin-left: 0 !important;
+  top: 50% !important;
+  bottom: auto !important;
+  transform: translateY(-50%) !important;
+}`);
 
     // 隐藏的顶栏仍占着位置，鼠标扫过就会触发 :hover。
     // 显示前加一段延迟，只有停留一会儿才出现；移开时立即淡出。
